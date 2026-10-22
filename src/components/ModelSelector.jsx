@@ -1,4 +1,9 @@
 export default function ModelSelector({ models, selected, onChange, loading }) {
+    const formatModelName = (name) => {
+        const isFast = /3b|local|qwen2\.5:3b|mini|tiny/i.test(name);
+        return isFast ? `⚡ ${name} (Fast GPU)` : name;
+    };
+
     return (
         <div className="model-selector">
             <label>Model</label>
@@ -12,7 +17,7 @@ export default function ModelSelector({ models, selected, onChange, loading }) {
                 ) : (
                     models.map((m) => (
                         <option key={m.name} value={m.name}>
-                            {m.name}
+                            {formatModelName(m.name)}
                         </option>
                     ))
                 )}

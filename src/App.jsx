@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
-import { checkConnection, fetchModels, streamChat } from './services/ollama';
+import { fetchModels, streamChat, preloadModel } from './services/ollama';
 
 // ── Helpers ────────────────────────────────
 function generateId() {
@@ -51,6 +51,16 @@ export default function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const abortRef = useRef(null);
+  const conversationsRef = useRef(conversations);
+  const isStreamingRef = useRef(false);
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  }, [isStreaming]);
 
   // Sidebar mobile
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -66,30 +76,55 @@ export default function App() {
     storeConversations(conversations);
   }, [conversations]);
 
-  // ── Persist selected model ──
-  useEffect(() => {
-    if (selectedModel) localStorage.setItem('lumichat-model', selectedModel);
-  }, [selectedModel]);
+  // ── Fetch models & check connection on-demand ──
+  const refreshModels = useCallback(async () => {
+    const { online, models: modelList } = await fetchModels();
+    setIsConnected(online);
+    if (online) {
+      setModels(modelList);
 
-  // ── Check connection & load models ──
-  useEffect(() => {
-    let interval;
-    const check = async () => {
-      const online = await checkConnection();
-      setIsConnected(online);
-      if (online) {
-        const modelList = await fetchModels();
-        setModels(modelList);
-        // Auto-select first model if none selected
-        if (!selectedModel && modelList.length > 0) {
-          setSelectedModel(modelList[0].name);
+      const modelNames = modelList.map((m) => m.name);
+      let chosen = selectedModel;
+
+      if (!chosen || !modelNames.includes(chosen)) {
+        // Prioritize 3B / fast models that fit 100% on GPU
+        const fastModel = modelList.find((m) => /3b|local|qwen2\.5:3b/i.test(m.name)) || modelList[0];
+        chosen = fastModel ? fastModel.name : '';
+        if (chosen) {
+          setSelectedModel(chosen);
+          localStorage.setItem('lumichat-model', chosen);
         }
       }
+
+      if (chosen) {
+        preloadModel(chosen);
+      }
+    }
+  }, [selectedModel]);
+
+  // ── Load models ONCE on startup and on window focus (NO background timer polling) ──
+  useEffect(() => {
+    // Initial fetch once on app load
+    refreshModels();
+
+    // Only re-check when the user returns to the window (e.g. after starting Ollama)
+    const onFocus = () => {
+      if (!isStreamingRef.current) {
+        refreshModels();
+      }
     };
-    check();
-    interval = setInterval(check, 10000); // Check every 10s
-    return () => clearInterval(interval);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Persist selected model & preload into GPU ──
+  const handleModelChange = useCallback((newModel) => {
+    setSelectedModel(newModel);
+    if (newModel) {
+      localStorage.setItem('lumichat-model', newModel);
+      preloadModel(newModel);
+    }
+  }, []);
 
   // ── Get active conversation ──
   const activeConv = conversations.find((c) => c.id === activeId);
@@ -149,8 +184,7 @@ export default function App() {
         prev.map((c) => {
           if (c.id !== convId) return c;
           const updatedMessages = [...c.messages, userMessage];
-          // Auto-title from first user message
-          const title = c.messages.length === 0 ? text.slice(0, 40) + (text.length > 40 ? '…' : '') : c.title;
+          const title = c.messages.length === 0 ? text.slice(0, 36) + (text.length > 36 ? '…' : '') : c.title;
           return { ...c, messages: updatedMessages, title };
         })
       );
@@ -163,9 +197,17 @@ export default function App() {
       abortRef.current = controller;
 
       try {
-        // Build messages array for Ollama
-        const currentConv = conversations.find((c) => c.id === convId);
-        const chatMessages = [...(currentConv?.messages || []), userMessage].map((m) => ({
+        // Keep history to last 8 messages for optimal context speed
+        const currentConv = conversationsRef.current.find((c) => c.id === convId);
+        const recentHistory = (currentConv?.messages || []).slice(-8);
+
+        const systemPrompt = {
+          role: 'system',
+          content:
+            'You are LumiChat, a fast and helpful AI assistant. Give concise, direct answers. Use code blocks when sharing code.',
+        };
+
+        const chatMessages = [systemPrompt, ...recentHistory, userMessage].map((m) => ({
           role: m.role,
           content: m.content,
         }));
@@ -207,7 +249,7 @@ export default function App() {
         abortRef.current = null;
       }
     },
-    [selectedModel, isConnected, activeId, conversations]
+    [selectedModel, isConnected, activeId]
   );
 
   // ── Stop Streaming ──
@@ -243,12 +285,13 @@ export default function App() {
           onDelete={handleDeleteChat}
           models={models}
           selectedModel={selectedModel}
-          onModelChange={setSelectedModel}
+          onModelChange={handleModelChange}
           isConnected={isConnected}
           theme={theme}
           onThemeToggle={toggleTheme}
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
+          onRefresh={refreshModels}
         />
 
         <ChatArea

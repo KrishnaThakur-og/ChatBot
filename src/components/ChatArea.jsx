@@ -1,10 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, memo } from 'react';
 import { Bot, Menu } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import MessageBubble from './MessageBubble';
 import MessageInput from './MessageInput';
+import { motion } from 'framer-motion';
 
 const SUGGESTIONS = [
     { icon: '💡', text: 'Explain quantum computing in simple terms' },
@@ -13,40 +11,7 @@ const SUGGESTIONS = [
     { icon: '🚀', text: 'What are the best practices for React performance?' },
 ];
 
-function MessageBubbleContent({ content }) {
-    return (
-        <ReactMarkdown
-            components={{
-                code({ className, children, ...props }) {
-                    const match = /language-(\w+)/.exec(className || '');
-                    const isInline = !match && !String(children).includes('\n');
-                    return isInline ? (
-                        <code className={className} {...props}>{children}</code>
-                    ) : (
-                        <div className="code-block-wrapper">
-                            <SyntaxHighlighter
-                                language={match?.[1] || 'text'}
-                                style={oneDark}
-                                customStyle={{
-                                    margin: 0,
-                                    padding: '16px',
-                                    fontSize: '13px',
-                                    background: 'transparent',
-                                }}
-                            >
-                                {String(children).replace(/\n$/, '')}
-                            </SyntaxHighlighter>
-                        </div>
-                    );
-                },
-            }}
-        >
-            {content}
-        </ReactMarkdown>
-    );
-}
-
-export default function ChatArea({
+function ChatArea({
     messages,
     isStreaming,
     streamingContent,
@@ -58,11 +23,20 @@ export default function ChatArea({
     selectedModel,
     onMenuToggle,
 }) {
-    const messagesEndRef = useRef(null);
+    const scrollContainerRef = useRef(null);
+    const isAutoScrollFast = useRef(true);
 
-    // Auto-scroll to bottom when new messages arrive
+    const handleScroll = () => {
+        if (!scrollContainerRef.current) return;
+        const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+        isAutoScrollFast.current = scrollHeight - scrollTop - clientHeight < 150;
+    };
+
+    // Fast auto-scroll to bottom using direct scrollTop (avoids expensive DOM reflows)
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        if (isAutoScrollFast.current && scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+        }
     }, [messages, streamingContent]);
 
     const showWelcome = messages.length === 0 && !isStreaming;
@@ -90,14 +64,44 @@ export default function ChatArea({
                     <div className="welcome-icon">
                         <Bot size={36} color="white" />
                     </div>
-                    <h1 className="welcome-title">Welcome to LumiChat</h1>
-                    <p className="welcome-subtitle">
+                    <motion.h1
+                        className="welcome-title"
+                        initial={{ opacity: 0, y: -20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.1, type: 'spring' }}
+                    >
+                        Welcome to LumiChat
+                    </motion.h1>
+                    <motion.p
+                        className="welcome-subtitle"
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 }}
+                    >
                         Your AI assistant powered by Ollama. Ask me anything — from code reviews to creative
                         writing, I'm here to help.
-                    </p>
-                    <div className="welcome-suggestions">
+                    </motion.p>
+                    <motion.div
+                        className="welcome-suggestions"
+                        initial="hidden"
+                        animate="visible"
+                        variants={{
+                            hidden: { opacity: 0, scale: 0.95 },
+                            visible: {
+                                opacity: 1,
+                                scale: 1,
+                                transition: { staggerChildren: 0.08, delayChildren: 0.2 }
+                            }
+                        }}
+                    >
                         {SUGGESTIONS.map((s, i) => (
-                            <button
+                            <motion.button
+                                variants={{
+                                    hidden: { opacity: 0, y: 15 },
+                                    visible: { opacity: 1, y: 0, transition: { type: 'spring' } }
+                                }}
+                                whileHover={{ scale: 1.02, y: -2 }}
+                                whileTap={{ scale: 0.98 }}
                                 key={i}
                                 className="suggestion-card glass"
                                 onClick={() => onSuggestion(s.text)}
@@ -105,14 +109,18 @@ export default function ChatArea({
                             >
                                 <span className="suggestion-icon">{s.icon}</span>
                                 {s.text}
-                            </button>
+                            </motion.button>
                         ))}
-                    </div>
+                    </motion.div>
                 </div>
             ) : (
-                <div className="messages-container">
+                <div
+                    className="messages-container"
+                    ref={scrollContainerRef}
+                    onScroll={handleScroll}
+                >
                     {messages.map((msg, i) => (
-                        <MessageBubble key={i} message={msg} />
+                        <MessageBubble key={msg.timestamp ? `${msg.timestamp}-${i}` : i} message={msg} />
                     ))}
 
                     {/* Streaming message */}
@@ -121,16 +129,13 @@ export default function ChatArea({
                             <div className="message-avatar">
                                 <Bot size={16} />
                             </div>
-                            <div className="message-content" style={{
-                                background: 'var(--msg-ai-bg)',
-                                border: '1px solid var(--msg-ai-border)',
-                                backdropFilter: 'blur(12px)',
-                                padding: '14px 18px',
-                                borderRadius: 'var(--radius-md)',
-                            }}>
+                            <div className="message-content">
                                 <div className="message-text">
                                     {streamingContent ? (
-                                        <MessageBubbleContent content={streamingContent} />
+                                        <p className="streaming-text">
+                                            {streamingContent}
+                                            <span className="streaming-cursor">▋</span>
+                                        </p>
                                     ) : (
                                         <div className="typing-indicator">
                                             <span></span>
@@ -142,8 +147,6 @@ export default function ChatArea({
                             </div>
                         </div>
                     )}
-
-                    <div ref={messagesEndRef} />
                 </div>
             )}
 
@@ -157,3 +160,5 @@ export default function ChatArea({
         </main>
     );
 }
+
+export default memo(ChatArea);

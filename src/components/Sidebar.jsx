@@ -1,14 +1,17 @@
+import { memo } from 'react';
 import {
     MessageSquarePlus,
     MessageCircle,
     Sparkles,
     Trash2,
     MessageSquare,
+    RefreshCw,
 } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
 import ModelSelector from './ModelSelector';
+import { motion, AnimatePresence } from 'framer-motion';
 
-export default function Sidebar({
+function Sidebar({
     conversations,
     activeId,
     onSelect,
@@ -22,10 +25,21 @@ export default function Sidebar({
     onThemeToggle,
     isOpen,
     onClose,
+    onRefresh,
 }) {
     return (
         <>
-            <div className={`sidebar-overlay ${isOpen ? 'visible' : ''}`} onClick={onClose} />
+            <AnimatePresence>
+                {isOpen && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="sidebar-overlay visible"
+                        onClick={onClose}
+                    />
+                )}
+            </AnimatePresence>
             <aside className={`sidebar glass-elevated ${isOpen ? 'open' : ''}`}>
                 {/* Header */}
                 <div className="sidebar-header">
@@ -50,8 +64,11 @@ export default function Sidebar({
                             <span>Start a new chat to begin</span>
                         </div>
                     ) : (
-                        conversations.map((conv) => (
-                            <button
+                        conversations.map((conv, idx) => (
+                            <motion.button
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: Math.min(idx * 0.03, 0.3) }}
                                 key={conv.id}
                                 className={`chat-list-item ${conv.id === activeId ? 'active' : ''}`}
                                 onClick={() => onSelect(conv.id)}
@@ -68,7 +85,7 @@ export default function Sidebar({
                                 >
                                     <Trash2 size={13} />
                                 </span>
-                            </button>
+                            </motion.button>
                         ))
                     )}
                 </div>
@@ -83,6 +100,16 @@ export default function Sidebar({
                     <div className="connection-status">
                         <span className={`status-dot ${isConnected ? 'online' : 'offline'}`} />
                         <span>{isConnected ? 'Ollama Connected' : 'Ollama Offline'}</span>
+                        {onRefresh && (
+                            <button
+                                className="refresh-status-btn"
+                                onClick={onRefresh}
+                                title="Refresh Ollama status & models"
+                                aria-label="Refresh status"
+                            >
+                                <RefreshCw size={12} />
+                            </button>
+                        )}
                     </div>
                     <ThemeToggle theme={theme} onToggle={onThemeToggle} />
                 </div>
@@ -90,3 +117,5 @@ export default function Sidebar({
         </>
     );
 }
+
+export default memo(Sidebar);

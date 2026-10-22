@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Copy, Check, Bot, User } from 'lucide-react';
+import { motion } from 'framer-motion';
 
-function CodeBlock({ language, children }) {
+const CodeBlock = memo(function CodeBlock({ language, children }) {
     const [copied, setCopied] = useState(false);
     const code = String(children).replace(/\n$/, '');
 
@@ -36,16 +37,21 @@ function CodeBlock({ language, children }) {
             </SyntaxHighlighter>
         </div>
     );
-}
+});
 
-export default function MessageBubble({ message }) {
+function MessageBubble({ message }) {
     const isUser = message.role === 'user';
     const time = message.timestamp
         ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         : '';
 
     return (
-        <div className={`message ${message.role}`}>
+        <motion.div
+            className={`message ${message.role}`}
+            initial={{ opacity: 0, y: 12, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ type: 'spring', stiffness: 450, damping: 28 }}
+        >
             <div className="message-avatar">
                 {isUser ? <User size={16} /> : <Bot size={16} />}
             </div>
@@ -73,6 +79,8 @@ export default function MessageBubble({ message }) {
                 </div>
                 {time && <div className="message-meta">{time}</div>}
             </div>
-        </div>
+        </motion.div>
     );
 }
+
+export default memo(MessageBubble);
